@@ -13,30 +13,13 @@
 #include <utility>
 
 #include "constants.hpp"
+#include "initialize.hpp"
+#include "keyboard.hpp"
+#include "state.hpp"
 #include "types.hpp"
 
 namespace {  // FIXME this is a header, anon namespace not right
 using namespace chip8;
-
-inline auto print_memory(std::array<char, MEMORY_AMOUNT> const& memory) -> void
-{
-  std::cout << std::hex;
-  for (char c : memory) {
-    if (c != 0) {
-      std::cout << (0xFF & c);
-    }
-  }
-  std::cout << std::endl;
-}
-
-inline auto print_registers(State const& state) -> void
-{
-  std::cout << std::hex;
-  for (auto const reg : state.general_purpose_registers) {
-    std::cout << (0xFF & reg) << ' ';
-  }
-  std::cout << std::endl;
-}
 
 inline auto opcode(Instruction_t instruction) -> std::uint8_t
 {
@@ -45,12 +28,12 @@ inline auto opcode(Instruction_t instruction) -> std::uint8_t
 
 inline auto x(Instruction_t instruction) -> std::uint8_t
 {
-  return instruction & 0x0F00 >> 8;
+  return (instruction & 0x0F00) >> 8;
 }
 
 inline auto y(Instruction_t instruction) -> std::uint8_t
 {
-  return instruction & 0x00F0 >> 4;
+  return (instruction & 0x00F0) >> 4;
 }
 
 inline auto n(Instruction_t instruction) -> std::uint8_t
@@ -104,18 +87,18 @@ inline auto call_subroutine(State& state, Instruction_t instruction) -> void
 /// Skip the next instruction if Vx == kk
 inline auto skip_if_equal_rb(State& state, Instruction_t instruction) -> void
 {
-  if (state.general_purpose_registers[x(instruction)] == kk(instruction)) {
+  auto& reg = state.general_purpose_registers;
+  if (reg[x(instruction)] == kk(instruction))
     state.program_counter += 2;
-  }
 }
 
 /// Skip the next instruction if Vx != kk
 inline auto skip_if_not_equal_rb(State& state, Instruction_t instruction)
   -> void
 {
-  if (state.general_purpose_registers[x(instruction)] != kk(instruction)) {
+  auto& reg = state.general_purpose_registers;
+  if (reg[x(instruction)] != kk(instruction))
     state.program_counter += 2;
-  }
 }
 
 /// Skip the next instruction if Vx == Vy
@@ -124,10 +107,9 @@ inline auto skip_if_equal_rr(State& state, Instruction_t instruction) -> void
   if (n(instruction) != 0) {
     throw unknown_instruction_exception(instruction);
   }
-  if (state.general_purpose_registers[x(instruction)] ==
-      state.general_purpose_registers[y(instruction)]) {
+  auto& reg = state.general_purpose_registers;
+  if (reg[x(instruction)] == reg[y(instruction)])
     state.program_counter += 2;
-  }
 }
 
 /// Skip the next instruction if Vx != Vy
@@ -137,101 +119,91 @@ inline auto skip_if_not_equal_rr(State& state, Instruction_t instruction)
   if (n(instruction) != 0) {
     throw unknown_instruction_exception(instruction);
   }
-  if (state.general_purpose_registers[x(instruction)] !=
-      state.general_purpose_registers[y(instruction)]) {
+  auto& reg = state.general_purpose_registers;
+  if (reg[x(instruction)] != reg[y(instruction)])
     state.program_counter += 2;
-  }
 }
 
 /// Sets Vx to value kk.
 inline auto set_register(State& state, Instruction_t instruction) -> void
 {
-  state.general_purpose_registers[x(instruction)] = kk(instruction);
+  auto& reg           = state.general_purpose_registers;
+  reg[x(instruction)] = kk(instruction);
 }
 
 /// Adds value kk to register Vx
 inline auto add_register(State& state, Instruction_t instruction) -> void
 {
-  state.general_purpose_registers[x(instruction)] += kk(instruction);
+  auto& reg = state.general_purpose_registers;
+  reg[x(instruction)] += kk(instruction);
 }
 
 inline auto load_y_to_x(State& state, Instruction_t instruction) -> void
 {
-  state.general_purpose_registers[x(instruction)] =
-    state.general_purpose_registers[y(instruction)];
+  auto& reg           = state.general_purpose_registers;
+  reg[x(instruction)] = reg[y(instruction)];
 }
 
 inline auto bitwise_or(State& state, Instruction_t instruction) -> void
 {
-  state.general_purpose_registers[x(instruction)] |=
-    state.general_purpose_registers[y(instruction)];
+  auto& reg = state.general_purpose_registers;
+  reg[x(instruction)] |= reg[y(instruction)];
 }
 
 inline auto bitwise_and(State& state, Instruction_t instruction) -> void
 {
-  state.general_purpose_registers[x(instruction)] &=
-    state.general_purpose_registers[y(instruction)];
+  auto& reg = state.general_purpose_registers;
+  reg[x(instruction)] &= reg[y(instruction)];
 }
 
 inline auto bitwise_xor(State& state, Instruction_t instruction) -> void
 {
-  state.general_purpose_registers[x(instruction)] ^=
-    state.general_purpose_registers[y(instruction)];
+  auto& reg = state.general_purpose_registers;
+  reg[x(instruction)] ^= reg[y(instruction)];
 }
 
 inline auto add_with_carry(State& state, Instruction_t instruction) -> void
 {
-  state.general_purpose_registers[x(instruction)] +=
-    state.general_purpose_registers[y(instruction)];
-  if (x(instruction) > 0 &&
-      (y(instruction) >
-       std::numeric_limits<std::uint8_t>::max() - x(instruction))) {
-    state.general_purpose_registers[0xFu] = 1;
+  auto& reg = state.general_purpose_registers;
+  if (reg[x(instruction)] > 0 &&
+      (reg[y(instruction)] >
+       std::numeric_limits<std::uint8_t>::max() - reg[x(instruction)])) {
+    reg[0xF] = 1;
   }
   else {
-    state.general_purpose_registers[0xFu] = 0;
+    reg[0xF] = 0;
   }
+  reg[x(instruction)] += reg[y(instruction)];
 }
 
 inline auto subtract_with_not_borrow(State& state, Instruction_t instruction)
   -> void
 {
-  if (x(instruction) > y(instruction)) {
-    state.general_purpose_registers[0xFu] = 1;
-  }
-  else {
-    state.general_purpose_registers[0xFu] = 0;
-  }
-  state.general_purpose_registers[x(instruction)] -=
-    state.general_purpose_registers[y(instruction)];
+  auto& reg = state.general_purpose_registers;
+  reg[0xF]  = (reg[x(instruction)] > reg[y(instruction)]) ? 1 : 0;
+  reg[x(instruction)] -= reg[y(instruction)];
 }
 
 inline auto rsubtract_with_not_borrow(State& state, Instruction_t instruction)
   -> void
 {
-  if (y(instruction) > x(instruction)) {
-    state.general_purpose_registers[0xFu] = 1;
-  }
-  else {
-    state.general_purpose_registers[0xFu] = 0;
-  }
-  state.general_purpose_registers[x(instruction)] =
-    state.general_purpose_registers[y(instruction)] -
-    state.general_purpose_registers[x(instruction)];
+  auto& reg           = state.general_purpose_registers;
+  reg[0xF]            = (reg[y(instruction)] > reg[x(instruction)]) ? 1 : 0;
+  reg[x(instruction)] = reg[y(instruction)] - reg[x(instruction)];
 }
 
 inline auto shift_right(State& state, Instruction_t instruction) -> void
 {
-  state.general_purpose_registers[0xFu] =
-    state.general_purpose_registers[x(instruction)] & 1u;
-  state.general_purpose_registers[x(instruction)] /= 2u;
+  auto& reg = state.general_purpose_registers;
+  reg[0xF]  = reg[x(instruction)] & 1u;
+  reg[x(instruction)] /= 2u;
 }
 
 inline auto shift_left(State& state, Instruction_t instruction) -> void
 {
-  state.general_purpose_registers[0xFu] =
-    state.general_purpose_registers[x(instruction)] & (1u << 7);
-  state.general_purpose_registers[x(instruction)] *= 2u;
+  auto& reg = state.general_purpose_registers;
+  reg[0xF]  = (reg[x(instruction)] & (1u << 7u)) ? 1u : 0u;
+  reg[x(instruction)] *= 2u;
 }
 
 inline auto set_index_register(State& state, Instruction_t instruction) -> void
@@ -241,60 +213,61 @@ inline auto set_index_register(State& state, Instruction_t instruction) -> void
 
 inline auto jump_to_nnn_plus_v0(State& state, Instruction_t instruction) -> void
 {
-  state.program_counter =
-    nnn(instruction) + state.general_purpose_registers[0x0];
+  auto& reg             = state.general_purpose_registers;
+  state.program_counter = nnn(instruction) + reg[0x0];
 }
 
 inline auto random_byte(State& state, Instruction_t instruction) -> void
 {
-  auto rng  = std::mt19937{std::random_device{}()};
-  auto dist = std::uniform_int_distribution{0, 255};
-  state.general_purpose_registers[x(instruction)] = dist(rng) & kk(instruction);
+  auto& reg           = state.general_purpose_registers;
+  auto rng            = std::mt19937{std::random_device{}()};
+  auto dist           = std::uniform_int_distribution{0, 255};
+  reg[x(instruction)] = dist(rng) & kk(instruction);
 }
 
 inline auto display_sprite(State& state, Instruction_t instruction) -> void
 {
-  auto const at       = std::pair{x(instruction), y(instruction)};
+  auto& reg           = state.general_purpose_registers;
+  auto const at       = std::pair{reg[x(instruction)], reg[y(instruction)]};
   auto const length   = n(instruction);
   auto const location = state.index_register;
+  auto vf             = 0x0;
 
   for (auto i = Address_t{0x0}; i < length; ++i) {
     auto const bits = state.memory[location + i];
     for (auto j = 0x0; j < 8; ++j) {
-      state.screen_buffer[at.second][at.first + j] = 0x1 & (bits >> j);
+      auto const screen_y = (at.second + i) % 32;
+      auto const screen_x = (at.first + j) % 64;
+
+      bool& pixel          = state.screen_buffer[screen_y][screen_x];
+      bool const new_pixel = bits & (0x1 << (7 - j));
+      // bool const new_pixel = 0x1 & (bits >> j);
+
+      if (pixel && new_pixel) {
+        vf = 0x1;
+      }
+      pixel ^= new_pixel;
     }
   }
-
-  // each byte is 8 pixels to display on screen, display if true
-  //  this is possibly displaying multiple bytes, I think each byte is one step
-  //  down on the y direction.
-
-  // so you need a way to iterate through the bits of each byte in msb->lsb
-  // order
-
-  // at each bit, you modify a particular location in the screen buffer
-  // xor it with current value, if previous value way 1, then set VF to 1 if any
-  // bits were flipped, and set it to zero otherwise.
-
-  // std::cout << (int)at.first << ' ' << (int)at.second << std::endl;
-  // std::cout << (int)length << std::endl;
-  // std::cout << (int)location << std::endl;
-  // xor onto screen, if collision, set VF?, wrap if x goes past or y if y goes
-  // past.
+  state.general_purpose_registers[0xF] = vf;
 }
 
 inline auto skip_if_pressed(State& state, Instruction_t instruction) -> void
 {
-  auto const key = state.general_purpose_registers[x(instruction)];
-  if (state.pressed_key.has_value() && state.pressed_key.value() == key) {
+  auto& reg              = state.general_purpose_registers;
+  auto const key         = reg[x(instruction)];
+  auto const key_pressed = state.keyboard.get_state();
+  if (key_pressed.has_value() && key_pressed.value() == key) {
     state.program_counter += 2;
   }
 }
 
 inline auto skip_if_not_pressed(State& state, Instruction_t instruction) -> void
 {
-  auto const key = state.general_purpose_registers[x(instruction)];
-  if (state.pressed_key.has_value() && state.pressed_key.value() != key) {
+  auto& reg              = state.general_purpose_registers;
+  auto const key         = reg[x(instruction)];
+  auto const key_pressed = state.keyboard.get_state();
+  if (!key_pressed.has_value() || key_pressed.value() != key) {
     state.program_counter += 2;
   }
 }
@@ -302,58 +275,56 @@ inline auto skip_if_not_pressed(State& state, Instruction_t instruction) -> void
 inline auto set_from_delay_timer(State& state, Instruction_t instruction)
   -> void
 {
-  state.general_purpose_registers[x(instruction)] =
-    state.delay_timer_register.value;
+  auto& reg           = state.general_purpose_registers;
+  reg[x(instruction)] = state.delay_timer_register.value;
 }
 
 inline auto wait_for_keypress(State& state, Instruction_t instruction) -> void
 {
-  // TODO remove this incrememt
+  auto& reg           = state.general_purpose_registers;
+  auto key            = state.keyboard.get_state_blocking();
+  reg[x(instruction)] = key;
   state.program_counter += 2;
-  // TODO Use Escape method to check and immediatly return if a key is
-  // pressed, this could be wrapped in a method that also filters out
-  // non-chip8 keys and returns nullopt otherwise.
-  // Then you can store the value of the key in Vx, and increment the program
-  // couter, since this won't do it otherwise.
 }
 
 inline auto set_delay_timer(State& state, Instruction_t instruction) -> void
 {
-  state.delay_timer_register.value =
-    state.general_purpose_registers[x(instruction)];
+  auto& reg                                  = state.general_purpose_registers;
+  state.delay_timer_register.value           = reg[x(instruction)];
+  state.delay_timer_register.previous_update = Clock_t::now();
 }
 
 inline auto set_sound_timer(State& state, Instruction_t instruction) -> void
 {
-  state.sound_timer_register.value =
-    state.general_purpose_registers[x(instruction)];
+  auto& reg                                  = state.general_purpose_registers;
+  state.sound_timer_register.value           = reg[x(instruction)];
+  state.sound_timer_register.previous_update = Clock_t::now();
 }
 
 inline auto add_to_index_register(State& state, Instruction_t instruction)
   -> void
 {
-  state.index_register += state.general_purpose_registers[x(instruction)];
+  auto& reg = state.general_purpose_registers;
+  state.index_register += reg[x(instruction)];
 }
 
 inline auto set_index_register_to_digit_sprite(State& state,
                                                Instruction_t instruction)
   -> void
 {
-  // TODO figure out the hard coded locations and assign, maybe a map? though
-  // maybe that's too much.
-  // state.index_register += state.general_purpose_registers[x(instruction)];
+  auto& reg        = state.general_purpose_registers;
+  auto const digit = reg[x(instruction)];
+  state.index_register += digit_sprite_location(digit);
 }
 
 inline auto store_bcd_representation(State& state, Instruction_t instruction)
   -> void
 {
-  // Find the hundreds, tens, ones of Vx
-  // Store these in I, I+1 and I+2 in memory
-  auto const vx       = state.general_purpose_registers[x(instruction)];
-  auto const hundreds = vx % 100;
-  auto const tens     = (vx / 10) % 10;
-  auto const ones     = (vx / 100);
-  // std::cout << hundreds << ' ' << tens << ' ' << ones << std::endl;
+  auto& reg                              = state.general_purpose_registers;
+  auto const vx                          = reg[x(instruction)];
+  auto const hundreds                    = vx / 100;
+  auto const tens                        = (vx / 10) % 10;
+  auto const ones                        = vx % 10;
   state.memory[state.index_register]     = hundreds;
   state.memory[state.index_register + 1] = tens;
   state.memory[state.index_register + 2] = ones;
@@ -361,15 +332,17 @@ inline auto store_bcd_representation(State& state, Instruction_t instruction)
 
 inline auto registers_to_memory(State& state, Instruction_t instruction) -> void
 {
+  auto& reg = state.general_purpose_registers;
   for (auto i = 0; i <= x(instruction); ++i) {
-    state.memory[state.index_register + i] = state.general_purpose_registers[i];
+    state.memory[state.index_register + i] = reg[i];
   }
 }
 
 inline auto memory_to_registers(State& state, Instruction_t instruction) -> void
 {
+  auto& reg = state.general_purpose_registers;
   for (auto i = 0; i <= x(instruction); ++i) {
-    state.general_purpose_registers[i] = state.memory[state.index_register + i];
+    reg[i] = state.memory[state.index_register + i];
   }
 }
 
@@ -394,8 +367,8 @@ inline auto process_instruction(State& state, Instruction_t instruction)
         // System machine code jump, not used in emulated environment.
       }
       break;
-    case 0x1: jump_to_address(state, instruction); break;
-    case 0x2: call_subroutine(state, instruction); break;
+    case 0x1: jump_to_address(state, instruction); return state.program_counter;
+    case 0x2: call_subroutine(state, instruction); return state.program_counter;
     case 0x3: skip_if_equal_rb(state, instruction); break;
     case 0x4: skip_if_not_equal_rb(state, instruction); break;
     case 0x5: skip_if_equal_rr(state, instruction); break;
@@ -416,7 +389,9 @@ inline auto process_instruction(State& state, Instruction_t instruction)
       break;
     case 0x9: skip_if_not_equal_rr(state, instruction); break;
     case 0xA: set_index_register(state, instruction); break;
-    case 0xB: jump_to_nnn_plus_v0(state, instruction); break;
+    case 0xB:
+      jump_to_nnn_plus_v0(state, instruction);
+      return state.program_counter;
     case 0xC: random_byte(state, instruction); break;
     case 0xD: display_sprite(state, instruction); break;
     case 0xE:
@@ -431,7 +406,6 @@ inline auto process_instruction(State& state, Instruction_t instruction)
         case 0x07: set_from_delay_timer(state, instruction); break;
         case 0x0A:
           wait_for_keypress(state, instruction);
-          // FIXME not great, but how else do you get timers async?
           return state.program_counter;
         case 0x15: set_delay_timer(state, instruction); break;
         case 0x18: set_sound_timer(state, instruction); break;

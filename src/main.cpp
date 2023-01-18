@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <iterator>
 #include <optional>
@@ -9,13 +10,18 @@
 #include <thread>
 #include <vector>
 
+#include <esc/terminal.hpp>
+
 #include "clock.hpp"
 #include "constants.hpp"
+#include "debug.hpp"
 #include "initialize.hpp"
 #include "instructions.hpp"
 #include "keyboard.hpp"
 #include "screen.hpp"
 #include "timer.hpp"
+
+#define DEBUG 0
 
 struct Options {
   std::string rom_filepath;
@@ -56,10 +62,24 @@ auto main(int argc, char* argv[]) -> int
 {
   using namespace chip8;
   try {
-    auto const options  = parse_command_line(argc, argv);
-    auto const clock_fn = make_clock_fn(options.clock_hz);
-    auto state          = initialize_state(load_program(argv[1]));
+    {
+      using namespace esc;
+      initialize_interactive_terminal(Mouse_mode::Off, Key_mode::Normal);
+    }
+
+    auto const options = parse_command_line(argc, argv);
+    auto state         = initialize_state(load_program(argv[1]));
+#if DEBUG
+    auto debug_file     = std::ofstream{"debug.txt"};
+    auto const clock_fn = make_clock_fn(4);
+#else
+    auto const clock_fn =
+      make_clock_fn(options.clock_hz ? options.clock_hz : 500);
+#endif
     while (true) {
+#if DEBUG
+      write_state(debug_file, state);
+#endif
       auto const start       = Clock_t::now();
       auto const instruction = get_instruction(state);
       if (!instruction.has_value()) {
@@ -71,8 +91,6 @@ auto main(int argc, char* argv[]) -> int
       update_timer(state.delay_timer_register);
       update_timer(state.sound_timer_register);
 
-      state.pressed_key = get_keyboard_state();
-
       if (is_graphics_instruction(*instruction)) {
         update_graphics(state);
       }
@@ -82,10 +100,11 @@ auto main(int argc, char* argv[]) -> int
       std::this_thread::sleep_for(instruction_runtime - elapsed);
     }
 
-    std::cout << "Done.\n";
+    esc::uninitialize_terminal();
     return 0;
   }
   catch (std::exception const& e) {
+    esc::uninitialize_terminal();
     std::cerr << "Fatal Error: " << e.what() << '\n';
     return 1;
   }

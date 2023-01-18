@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "constants.hpp"
+#include "state.hpp"
 #include "types.hpp"
 
 namespace chip8 {
@@ -52,6 +53,15 @@ inline auto initialize_digit_sprites(
   }
 }
 
+inline auto initialize_screen(std::array<std::array<bool, 64>, 32>& screen)
+  -> void
+{
+  using std::ranges::fill;
+  for (auto& row : screen) {
+    fill(row, false);
+  }
+}
+
 inline auto initialize_state(std::vector<char> const& program) -> State
 {
   using std::ranges::fill;
@@ -65,6 +75,7 @@ inline auto initialize_state(std::vector<char> const& program) -> State
   fill(state.general_purpose_registers, 0);
   fill(state.instruction_stack, Address_t{0});
   fill(state.memory, '\0');
+  initialize_screen(state.screen_buffer);
   initialize_digit_sprites(state.memory);
   std::ranges::copy(program,
                     std::next(std::begin(state.memory), INSTRUCTION_OFFSET));
